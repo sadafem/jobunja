@@ -1,108 +1,109 @@
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.net.HttpURLConnection;
+import java.net.SocketTimeoutException;
+import java.net.URL;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Scanner;
 
+import exceptions.ValidationException;
+import models.Skill;
+import models.User;
 import org.json.JSONArray;
 import org.json.JSONObject;
+import serializers.ProjectSerializer;
+import services.Database;
+import services.Server;
 
 
 public class Main {
 
-    private static List<User> users = new ArrayList<>();
-    private static List<Project> projects = new ArrayList<>();
+    private static void print(Object object) {
+        System.out.println(object);
+    }
 
-    private static User getUserByUsername(String name) {
-        for (User user : users) {
-            if (name.equals(user.getUsername())) {
-                return user;
+    private static String performGetRequest(String address) throws Exception {
+        URL url = new URL(address);
+        HttpURLConnection con = (HttpURLConnection) url.openConnection();
+        con.setRequestMethod("GET");
+        con.setConnectTimeout(5000);
+        con.setReadTimeout(5000);
+        print("Sending request to " + address);
+        int status = con.getResponseCode();
+        if (status == 200) {
+            print("Request succeeded.");
+            BufferedReader in = new BufferedReader(
+                    new InputStreamReader(con.getInputStream())
+            );
+            String inputLine;
+            StringBuilder content = new StringBuilder();
+            while ((inputLine = in.readLine()) != null) {
+                content.append(inputLine);
             }
-        }
-        return null;
-    }
-
-
-    private static Project getProjectByTitle(String name) {
-        for (Project project : projects) {
-            if (name.equals(project.getTitle())) {
-                return project;
-            }
-        }
-        return null;
-    }
-
-    private static void registerUser(JSONObject userInfo) {
-        String username = (String) userInfo.get("username");
-        JSONArray skills = (JSONArray) userInfo.get("skills");
-        User newUser = new User(username, skills);
-        users.add(newUser);
-    }
-
-    private static void addProject(JSONObject projectInfo) {
-        String title = (String) projectInfo.get("title");
-        JSONArray requiredSkills = (JSONArray) projectInfo.get("skills");
-        int budget = (int) projectInfo.get("budget");
-        Project newProject = new Project(title, requiredSkills, budget);
-        projects.add(newProject);
-    }
-
-    private static void addBid(JSONObject bidInfo) {
-        User user = getUserByUsername((String) bidInfo.get("biddingUser"));
-        Project project = getProjectByTitle((String) bidInfo.get("projectTitle"));
-        Integer amount = (Integer) bidInfo.get("bidAmount");
-        if (user.satisfiesAllSkills(project.getRequiredSkills()) && project.getBudget() >= amount) {
-            Bid bid = new Bid(user, amount);
-            project.addBid(bid);
+            in.close();
+            con.disconnect();
+            return content.toString();
         }
         else {
-            System.out.println("Error: User \"" + user.getUsername() + "\" doesn't satisfy project requirements");
+            throw new Exception();
         }
     }
 
-    private static void auction(JSONObject projectID) {
-        Project project = getProjectByTitle((String) projectID.get("projectTitle"));
-        User winner = project.performAuction();
-        if (winner != null) {
-            System.out.println("Winner: " + winner.getUsername());
+    private static void fetchInitialData() throws Exception {
+        String rawData = performGetRequest("http://142.93.134.194:8000/joboonja/project");
+        JSONArray projects = new JSONArray(rawData);
+        for (Object project : projects) {
+            Database.addProject(ProjectSerializer.deserialize((JSONObject) project));
         }
-        else {
-            System.out.println("Project has no winner");
+
+        rawData = performGetRequest("http://142.93.134.194:8000/joboonja/skill");
+        JSONArray skills = new JSONArray(rawData);
+        for (Object skill : skills) {
+            Database.addSkill(((JSONObject) skill).getString("name"));
         }
     }
 
     public static void main(String[] args) {
-        Scanner scanner = new Scanner(System.in);
-        boolean isFinished = false;
-
-        while (!isFinished) {
-            String line = scanner.nextLine();
-            int spaceIndex = line.indexOf(" ");
-            String command = line.substring(0, spaceIndex);
-            String rawData = line.substring(spaceIndex);
-            JSONObject data = new JSONObject(rawData);
-
-            switch (command) {
-
-                case "register":
-                    registerUser(data);
-                    break;
-
-                case "addProject":
-                    addProject(data);
-                    break;
-
-                case "bid":
-                    addBid(data);
-                    break;
-
-                case "auction":
-                    auction(data);
-                    isFinished = true;
-                    break;
-
-                default:
-                    System.out.println("Error: Invalid command!");
-                    break;
+        try {
+            fetchInitialData();
+        }
+        catch (Exception e) {
+            if (e instanceof SocketTimeoutException) {
+                print("Error: Request timed-out! Turn off your VPN if you have one.");
             }
+            else {
+                print("Error: Request failed!");
+            }
+            return;
+        }
+
+        List<Skill> skills = new ArrayList<>();
+        skills.add(new Skill("HTML", 5));
+        skills.add(new Skill("Javascript", 4));
+        skills.add(new Skill("C++", 2));
+        skills.add(new Skill("Java", 3));
+        try {
+            Database.addUser(new User(
+                    1,
+                    "علی",
+                    "شریف‌زاده",
+                    "برنامه‌نویس وب",
+                    "",
+                    "روی سنگ قبرم بنویسید: خدابیامرز می‌خواست خیلی کارا بکنه ولی پول نذاشت",
+                    skills
+            ));
+        }
+        catch (ValidationException e) {
+            System.out.println("Error: Validation exception occurred!");
+            return;
+        }
+
+        try {
+            Server.start();
+        }
+        catch (Exception e) {
+            print("Error: internal Server error!");
+            print(e);
         }
     }
 }
