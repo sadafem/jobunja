@@ -1,0 +1,1 @@
+JobInja is a job-matching platform designed for programmers. The core mechanism for assigning projects to users is based on an auction model. Each project specifies a list of required skills along with a maximum payment offer. Users with varying skill levels can place bids on projects, and the system ultimately selects the most suitable candidate for each project.
